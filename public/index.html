@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>음식 사진 칼로리 계산기</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>🍽️ 음식 사진 칼로리 계산기</h1>
+      <p class="subtitle">음식 사진을 올리면 AI가 칼로리를 추정해드려요</p>
+    </header>
+
+    <main>
+      <div id="drop-zone" class="drop-zone">
+        <input type="file" id="file-input" accept="image/*" hidden />
+        <div id="drop-zone-content">
+          <div class="upload-icon">📷</div>
+          <p><strong>클릭하거나 사진을 드래그</strong>해서 업로드하세요</p>
+          <p class="hint">JPG, PNG 등 이미지 파일 (최대 10MB)</p>
+        </div>
+        <img id="preview" class="preview" alt="업로드한 사진 미리보기" hidden />
+      </div>
+
+      <div class="actions">
+        <button id="analyze-btn" disabled>칼로리 분석하기</button>
+        <button id="reset-btn" class="secondary" hidden>다시 선택</button>
+      </div>
+
+      <div id="status" class="status" hidden></div>
+
+      <section id="result" class="result" hidden>
+        <h2>분석 결과</h2>
+        <div class="total-card">
+          <span class="total-label">총 예상 칼로리</span>
+          <span id="total-calories" class="total-value">0 kcal</span>
+          <span id="confidence-badge" class="confidence"></span>
+        </div>
+
+        <div class="macros" id="macros"></div>
+
+        <h3>음식 항목</h3>
+        <ul id="items-list" class="items-list"></ul>
+
+        <p id="notes" class="notes"></p>
+      </section>
+    </main>
+
+    <footer>
+      <p>AI 추정치이며 실제 칼로리와 차이가 있을 수 있습니다.</p>
+    </footer>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "food-photo-calorie-calculator",
+  "version": "1.0.0",
+  "description": "음식 사진을 업로드하면 AI가 칼로리를 계산해주는 웹사이트",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "multer": "^2.2.0"
+  }
+}
