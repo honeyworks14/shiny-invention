@@ -1,6 +1,6 @@
 # 음식 사진 칼로리 계산기
 
-음식 사진을 업로드하면 Claude Vision API가 음식을 인식하고 칼로리와 영양 성분을 추정해주는 웹앱입니다.
+음식 사진을 업로드하면 Google Gemini API(무료 티어)가 음식을 인식하고 칼로리와 영양 성분을 추정해주는 웹앱입니다.
 
 ## 실행 방법
 
@@ -16,8 +16,8 @@
    cp .env.example .env
    ```
 
-   `.env` 파일을 열어 `ANTHROPIC_API_KEY`에 자신의 Anthropic API 키를 입력하세요.
-   (https://console.anthropic.com 에서 발급)
+   `.env` 파일을 열어 `GEMINI_API_KEY`에 자신의 Gemini API 키를 입력하세요.
+   (https://aistudio.google.com/apikey 에서 무료로 발급, 신용카드 불필요)
 
 3. 서버 실행
 
@@ -36,7 +36,7 @@
 ## 기술 스택
 
 - 백엔드: Node.js, Express, Multer(이미지 업로드)
-- AI: Anthropic Claude API (Vision)
+- AI: Google Gemini API (gemini-2.0-flash, 무료 티어)
 - 프론트엔드: 순수 HTML/CSS/JavaScript
 
 ## 참고 사항

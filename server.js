@@ -7,9 +7,9 @@ const { analyzeHandler } = require('./lib/analyze');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-if (!process.env.ANTHROPIC_API_KEY) {
+if (!process.env.GEMINI_API_KEY) {
   console.warn(
-    '경고: ANTHROPIC_API_KEY가 설정되지 않았습니다. .env 파일을 만들고 키를 추가하세요 (.env.example 참고).'
+    '경고: GEMINI_API_KEY가 설정되지 않았습니다. .env 파일을 만들고 키를 추가하세요 (.env.example 참고).'
   );
 }
 
