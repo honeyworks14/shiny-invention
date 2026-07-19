@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>가위바위보 타워 오르기</title>
+<meta name="description" content="가위바위보로 컴퓨터를 이기고 연승 층수를 쌓아 올라가는 싱글플레이 게임">
+<style>
+  /*
+    설계 노트: 이 게임은 야간 엘리베이터 제어반이라는 단일한 시각 세계를 의도적으로
+    선택했다. LED 층수 표시등은 어두운 바탕에서만 의미가 있으므로 라이트 테마를
+    별도로 만들지 않고, 항상 이 다크 패널 톤을 유지한다.
+  */
+  :root{
+    --bg: #0a0e16;
+    --bg-2: #0d1220;
+    --panel: #141a29;
+    --panel-2: #1a2236;
+    --line: #2a3348;
+    --line-soft: #212a3d;
+    --amber: #ff9a3d;
+    --amber-strong: #ffb066;
+    --amber-soft: rgba(255, 154, 61, 0.35);
+    --seg-off: #26211b;
+    --win: #6fcf97;
+    --win-soft: rgba(111, 207, 151, 0.28);
+    --lose: #e5566d;
+    --lose-soft: rgba(229, 86, 109, 0.28);
+    --text: #ede9e0;
+    --text-dim: #8b93a7;
+    --text-faint: #566079;
+    --font-ui: "Pretendard Variable", Pretendard, "Apple SD Gothic Neo",
+      "Malgun Gothic", -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html, body{
+    margin: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+  }
+
+  body{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+    position: relative;
+    overflow-x: hidden;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 0%, #131a2c 0%, var(--bg) 60%),
+      var(--bg);
+  }
+
+  /* 엘리베이터 수직 통로를 암시하는 배경 라인 */
+  body::before{
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      rgba(255, 154, 61, 0.035) 0px,
+      rgba(255, 154, 61, 0.035) 1px,
+      transparent 1px,
+      transparent 64px
+    );
+    background-size: 100% 128px;
+    animation: shaftScroll 9s linear infinite;
+  }
+  @keyframes shaftScroll{
+    from{ background-position: 0 0; }
+    to{ background-position: 0 128px; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    body::before{ animation: none; }
+  }
+
+  .sr-only{
+    position: absolute;
+    width: 1px; height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .tower{
+    width: 100%;
+    max-width: 420px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .panel{
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 22px 22px 26px;
+    box-shadow:
+      0 30px 60px -20px rgba(0, 0, 0, 0.7),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    position: relative;
+  }
+
+  .panel.shake{ animation: panelShake 0.5s ease; }
+  @keyframes panelShake{
+    0%, 100%{ transform: translateX(0); }
+    20%{ transform: translateX(-6px) rotate(-0.3deg); }
+    40%{ transform: translateX(5px) rotate(0.3deg); }
+    60%{ transform: translateX(-4px); }
+    80%{ transform: translateX(3px); }
+  }
+  .panel.flash-win{ animation: panelFlash 0.4s ease; }
+  @keyframes panelFlash{
+    0%{ box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7), inset 0 0 0 rgba(0,0,0,0); }
+    30%{ box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7), inset 0 0 40px var(--win-soft); }
+    100%{ box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7), inset 0 0 0 rgba(0,0,0,0); }
+  }
+  .panel.flash-lose{ animation: panelFlashLose 0.5s ease; }
+  @keyframes panelFlashLose{
+    0%{ box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7), inset 0 0 0 rgba(0,0,0,0); }
+    25%{ box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7), inset 0 0 46px var(--lose-soft); }
+    100%{ box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7), inset 0 0 0 rgba(0,0,0,0); }
+  }
+  .panel.flash-draw{ animation: panelFlashDraw 0.4s ease; }
+  @keyframes panelFlashDraw{
+    0%{ box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7), inset 0 0 0 rgba(0,0,0,0); }
+    30%{ box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7), inset 0 0 30px var(--amber-soft); }
+    100%{ box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7), inset 0 0 0 rgba(0,0,0,0); }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .panel.shake, .panel.flash-win, .panel.flash-lose, .panel.flash-draw{ animation: none; }
+  }
+
+  .panel-head{
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .plate{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .lamp{
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 8px 2px var(--amber-soft);
+    flex: none;
+    margin-top: 6px;
+  }
+
+  .title-block h1{
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+  .title-block p{
+    margin: 3px 0 0;
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+
+  .mute-btn{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    width: 36px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim);
+    cursor: pointer;
+    flex: none;
+  }
+  .mute-btn:hover{ color: var(--amber); border-color: var(--line-soft); }
+  .mute-btn svg{ width: 18px; height: 18px; }
+
+  /* --- 층수 LED 표시 --- */
+  .display-wrap{
+    background: #0b0f18;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px 12px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.6);
+    position: relative;
+  }
+
+  .floor-gain{
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--win);
+    pointer-events: none;
+    animation: floatUp 0.85s ease-out forwards;
+  }
+  @keyframes floatUp{
+    0%{ opacity: 0; transform: translateY(4px) scale(0.85); }
+    22%{ opacity: 1; transform: translateY(-2px) scale(1); }
+    100%{ opacity: 0; transform: translateY(-24px) scale(1); }
+  }
+
+  .display-scan{
+    position: relative;
+  }
+  .display-scan::after{
+    content: "";
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.025) 0px,
+      rgba(255,255,255,0.025) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    pointer-events: none;
+    border-radius: 8px;
+  }
+
+  .floor-row{
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+  }
+
+  .floor-display{
+    display: flex;
+    gap: 5px;
+  }
+  .floor-display{ transform-origin: center; }
+  .floor-display.pulse{ animation: floorPulse 0.5s ease-out; }
+  @keyframes floorPulse{
+    0%{ filter: brightness(1); transform: scale(1); }
+    28%{ filter: brightness(1.8); transform: scale(1.06); }
+    100%{ filter: brightness(1); transform: scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .floor-display.pulse{ animation: none; }
+    .floor-gain{ animation: none; opacity: 0; }
+  }
+
+  .digit{
+    position: relative;
+    width: clamp(30px, 9vw, 42px);
+    height: calc(clamp(30px, 9vw, 42px) * 1.75);
+  }
+  .seg{
+    position: absolute;
+    background: var(--seg-off);
+    transition: background 0.08s linear, box-shadow 0.08s linear;
+  }
+  .seg.on{
+    background: var(--amber);
+    box-shadow: 0 0 6px 1px var(--amber-soft), 0 0 16px 2px var(--amber-soft);
+  }
+  .seg-a, .seg-g, .seg-d{ left: 13%; width: 74%; height: 9.5%; }
+  .seg-a{ top: 0%;  clip-path: polygon(12% 0,88% 0,100% 50%,88% 100%,12% 100%,0 50%); }
+  .seg-g{ top: 45.5%; clip-path: polygon(12% 0,88% 0,100% 50%,88% 100%,12% 100%,0 50%); }
+  .seg-d{ top: 91%; clip-path: polygon(12% 0,88% 0,100% 50%,88% 100%,12% 100%,0 50%); }
+  .seg-f, .seg-b{ top: 4.5%; width: 11%; height: 41.5%; }
+  .seg-f{ left: 0%;  clip-path: polygon(0 12%,50% 0,100% 12%,100% 88%,50% 100%,0 88%); }
+  .seg-b{ right: 0%; clip-path: polygon(0 12%,50% 0,100% 12%,100% 88%,50% 100%,0 88%); }
+  .seg-e, .seg-c{ top: 54%; width: 11%; height: 41.5%; }
+  .seg-e{ left: 0%;  clip-path: polygon(0 12%,50% 0,100% 12%,100% 88%,50% 100%,0 88%); }
+  .seg-c{ right: 0%; clip-path: polygon(0 12%,50% 0,100% 12%,100% 88%,50% 100%,0 88%); }
+
+  .floor-unit{
+    font-size: 13px;
+    color: var(--text-faint);
+    padding-bottom: 6px;
+    letter-spacing: 0.02em;
+  }
+
+  .display-label{
+    font-size: 11px;
+    color: var(--text-faint);
+    letter-spacing: 0.14em;
+  }
+
+  .stat-row{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .stat{
+    background: var(--panel);
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    padding: 9px 12px;
+  }
+  .stat span{ display: block; }
+  .stat .k{ font-size: 11px; color: var(--text-faint); letter-spacing: 0.04em; }
+  .stat .v{ font-size: 17px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat .v.amber{ color: var(--amber-strong); }
+  .stat .v.small{ font-size: 13px; }
+  .stat-row.prob-row{ margin-top: 8px; }
+  .stat .v.flash{ animation: statFlash 0.5s ease; }
+  @keyframes statFlash{
+    0%{ transform: scale(1); filter: brightness(1); }
+    35%{ transform: scale(1.1); filter: brightness(1.35); }
+    100%{ transform: scale(1); filter: brightness(1); }
+  }
+
+  /* --- 운행 기록(로그) --- */
+  .log-box{
+    margin-top: 14px;
+  }
+  .log-head{
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    padding: 0 2px 6px;
+  }
+  .log-head span:last-child{ font-variant-numeric: tabular-nums; }
+  .log-list{
+    background: #0b0f18;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 2px 10px;
+    max-height: 158px;
+    overflow-y: auto;
+  }
+  .log-list::-webkit-scrollbar{ width: 6px; }
+  .log-list::-webkit-scrollbar-thumb{ background: var(--line); border-radius: 3px; }
+  .log-empty{
+    padding: 16px 4px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+  .log-row{
+    display: grid;
+    grid-template-columns: 22px 1fr 28px 44px;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--line-soft);
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--text-dim);
+  }
+  .log-list .log-row:first-child{ border-top: none; }
+  .log-row:last-child{ border-bottom: none; }
+  .log-row .lr-idx{ color: var(--text-faint); font-variant-numeric: tabular-nums; }
+  .log-row .lr-result{ text-align: center; font-weight: 700; }
+  .log-row.result-win .lr-result{ color: var(--win); }
+  .log-row.result-lose .lr-result{ color: var(--lose); }
+  .log-row.result-draw .lr-result{ color: var(--amber-strong); }
+  .log-row .lr-floor{ text-align: right; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+  .log-row.new{ animation: logRowIn 0.4s ease; }
+  @keyframes logRowIn{
+    0%{ opacity: 0; transform: translateY(-6px); background: rgba(255, 154, 61, 0.18); }
+    55%{ opacity: 1; transform: translateY(0); }
+    100%{ background: transparent; }
+  }
+
+  /* --- 대결 표시 영역 --- */
+  .battle{
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 10px;
+    margin: 18px 0 6px;
+  }
+  .slot{
+    text-align: center;
+  }
+  .slot .who{
+    font-size: 11px;
+    color: var(--text-faint);
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .slot-icon{
+    width: 64px;
+    height: 64px;
+    margin: 0 auto;
+    border-radius: 14px;
+    border: 1px solid var(--line-soft);
+    background: var(--panel);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-faint);
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+  }
+  .slot-icon svg{ width: 34px; height: 34px; }
+  .slot-icon.result-win{ color: var(--win); border-color: var(--win); background: var(--win-soft); }
+  .slot-icon.result-lose{ color: var(--lose); border-color: var(--lose); background: var(--lose-soft); }
+  .slot-icon.result-draw{ color: var(--amber); border-color: var(--amber); background: rgba(255,154,61,0.12); }
+  .slot-icon.thinking{ color: var(--text-faint); }
+  .slot-icon.reel{ color: var(--text-dim); border-color: var(--line-soft); }
+  .slot-icon.reel svg{ animation: reelCycle 0.09s linear; }
+  @keyframes reelCycle{
+    0%{ opacity: 0.4; transform: translateY(-6px) scale(0.9); }
+    100%{ opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .slot-icon.pop-in svg{ animation: iconPop 0.32s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes iconPop{
+    0%{ opacity: 0; transform: scale(0.35) rotate(-10deg); }
+    60%{ opacity: 1; transform: scale(1.12) rotate(2deg); }
+    100%{ opacity: 1; transform: scale(1) rotate(0); }
+  }
+  .thinking-dots{ display: flex; gap: 4px; }
+  .thinking-dots span{
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-faint);
+    animation: dotBlink 1s infinite ease-in-out;
+  }
+  .thinking-dots span:nth-child(2){ animation-delay: 0.15s; }
+  .thinking-dots span:nth-child(3){ animation-delay: 0.3s; }
+  @keyframes dotBlink{ 0%, 80%, 100%{ opacity: 0.25; } 40%{ opacity: 1; } }
+  @media (prefers-reduced-motion: reduce){
+    .thinking-dots span{ animation: none; opacity: 0.6; }
+  }
+
+  .vs{
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-faint);
+    letter-spacing: 0.05em;
+  }
+
+  .message{
+    min-height: 34px;
+    text-align: center;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    padding: 0 4px;
+  }
+  .message.win{ color: var(--win); }
+  .message.lose{ color: var(--lose); }
+  .message.draw{ color: var(--amber-strong); }
+  .message.thinking{ color: var(--text-faint); }
+
+  /* --- 선택 버튼 --- */
+  .choices{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .choice-btn{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px 6px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+    cursor: pointer;
+    transition: transform 0.08s ease, border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  }
+  .choice-btn svg{ width: 30px; height: 30px; }
+  .choice-btn .label{ font-size: 12.5px; color: var(--text-dim); }
+  .choice-btn:hover:not(:disabled){
+    border-color: var(--amber);
+    box-shadow: 0 0 0 1px var(--amber-soft), 0 0 18px var(--amber-soft);
+  }
+  .choice-btn:active:not(:disabled){ transform: translateY(2px); }
+  .choice-btn:focus-visible{
+    outline: none;
+    box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--amber);
+  }
+  .choice-btn:disabled{ opacity: 0.35; cursor: not-allowed; }
+  .choice-btn:disabled.chosen{
+    opacity: 1;
+    border-color: var(--amber);
+    box-shadow: 0 0 0 1px var(--amber-soft), 0 0 18px var(--amber-soft);
+  }
+  .choice-btn:disabled.not-chosen{ opacity: 0.2; }
+
+  .choices.armed .choice-btn:not(:disabled){
+    animation: armedGlow 2.6s ease-in-out infinite;
+  }
+  @keyframes armedGlow{
+    0%, 100%{ box-shadow: none; }
+    50%{ box-shadow: 0 0 0 1px var(--amber-soft), 0 0 12px var(--amber-soft); }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .choices.armed .choice-btn:not(:disabled){ animation: none; }
+  }
+
+  /* --- 자동 운전 --- */
+  .auto-box{
+    margin-top: 14px;
+    background: #0b0f18;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+  }
+  .auto-head{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    margin-bottom: 10px;
+  }
+  .auto-status{
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--line-soft);
+    color: var(--text-faint);
+  }
+  .auto-status::before{
+    content: "";
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    flex: none;
+  }
+  .auto-status.running{ color: var(--amber-strong); border-color: var(--amber-soft); }
+  .auto-status.running::before{ background: var(--amber); animation: autoStatusBlink 1.2s ease-in-out infinite; }
+  .auto-status.done{ color: var(--win); border-color: var(--win-soft); }
+  .auto-status.done::before{ background: var(--win); }
+  @keyframes autoStatusBlink{ 0%, 100%{ opacity: 1; } 50%{ opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce){
+    .auto-status.running::before{ animation: none; }
+  }
+
+  .auto-mode{
+    display: flex;
+    gap: 3px;
+    background: var(--panel);
+    border: 1px solid var(--line-soft);
+    border-radius: 9px;
+    padding: 3px;
+    margin-bottom: 10px;
+  }
+  .mode-btn{
+    flex: 1;
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    padding: 7px 4px;
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .mode-btn.active{ background: var(--amber); color: #241505; font-weight: 700; }
+  .mode-btn:focus-visible{
+    outline: none;
+    box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--amber);
+  }
+  .mode-btn:disabled{ opacity: 0.4; cursor: not-allowed; }
+
+  .auto-input-row{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #autoTargetInput{
+    width: 60px;
+    background: var(--panel);
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    padding: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  #autoTargetInput:focus-visible{
+    outline: none;
+    border-color: var(--amber);
+    box-shadow: 0 0 0 2px var(--amber-soft);
+  }
+  #autoTargetInput:disabled{ opacity: 0.4; cursor: not-allowed; }
+  .auto-input-suffix{ font-size: 12.5px; color: var(--text-dim); flex: none; }
+  .auto-start-btn{
+    margin-left: auto;
+    background: var(--amber);
+    color: #241505;
+    border: none;
+    border-radius: 9px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    flex: none;
+  }
+  .auto-start-btn:hover:not(:disabled){ background: var(--amber-strong); }
+  .auto-start-btn:focus-visible{
+    outline: none;
+    box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--amber);
+  }
+  .auto-start-btn:disabled{ opacity: 0.4; cursor: not-allowed; }
+  .auto-hint{
+    margin-top: 8px;
+    font-size: 11.5px;
+    color: var(--lose);
+  }
+
+  .auto-running{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .auto-progress-text{
+    font-size: 12.5px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .auto-stop-btn{
+    flex: none;
+    background: transparent;
+    border: 1px solid var(--lose);
+    border-radius: 9px;
+    padding: 7px 14px;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--lose);
+    cursor: pointer;
+  }
+  .auto-stop-btn:hover{ background: var(--lose-soft); }
+  .auto-stop-btn:focus-visible{
+    outline: none;
+    box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--lose);
+  }
+
+  .footer-note{
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-top: 16px;
+    letter-spacing: 0.02em;
+  }
+
+  /* --- 게임오버 오버레이 --- */
+  .overlay{
+    position: absolute;
+    inset: 0;
+    border-radius: 20px;
+    background: rgba(9, 12, 20, 0.88);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  .overlay.show{ opacity: 1; pointer-events: auto; }
+  .overlay-card{
+    text-align: center;
+    padding: 20px;
+    max-width: 300px;
+    transform: translateY(12px) scale(0.95);
+    transition: transform 0.32s cubic-bezier(.2,.8,.2,1);
+  }
+  .overlay.show .overlay-card{ transform: translateY(0) scale(1); }
+  @media (prefers-reduced-motion: reduce){
+    .overlay-card{ transition: none; transform: none; }
+  }
+  .overlay-card .tag{
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--lose);
+  }
+  .overlay-card h2{
+    margin: 8px 0 4px;
+    font-size: 22px;
+  }
+  .overlay-card .final-floor{
+    font-size: 44px;
+    font-weight: 800;
+    color: var(--amber-strong);
+    font-variant-numeric: tabular-nums;
+    margin: 4px 0;
+  }
+  .overlay-card .note{
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 18px;
+  }
+  .restart-btn{
+    background: var(--amber);
+    color: #241505;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 22px;
+    font-size: 14.5px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 8px 20px -6px var(--amber-soft);
+  }
+  .restart-btn:hover{ background: var(--amber-strong); }
+  .restart-btn:focus-visible{
+    outline: none;
+    box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--amber);
+  }
+  .overlay.show .restart-btn{ animation: restartPulse 2.2s ease-in-out infinite; }
+  @keyframes restartPulse{
+    0%, 100%{ box-shadow: 0 8px 20px -6px var(--amber-soft); }
+    50%{ box-shadow: 0 8px 26px -4px var(--amber-soft), 0 0 20px var(--amber-soft); }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .overlay.show .restart-btn{ animation: none; }
+  }
+
+  @media (max-width: 380px){
+    .slot-icon{ width: 54px; height: 54px; }
+    .choice-btn{ padding: 12px 4px 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="tower">
+  <div class="panel" id="panel">
+    <div class="panel-head">
+      <div class="plate">
+        <span class="lamp" aria-hidden="true"></span>
+        <div class="title-block">
+          <h1>가위바위보 타워</h1>
+          <p>이길 때마다 한 층씩 오릅니다. 몇 층까지 갈 수 있나요?</p>
+        </div>
+      </div>
+      <button class="mute-btn" id="muteBtn" type="button" aria-label="효과음 끄기">
+        <svg id="muteIconOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/>
+          <path d="M16.5 8.5a5 5 0 0 1 0 7" />
+          <path d="M19 6a9 9 0 0 1 0 12" />
+        </svg>
+        <svg id="muteIconOff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:none">
+          <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/>
+          <path d="M16 9l5 6M21 9l-5 6" />
+        </svg>
+      </button>
+    </div>
+
+    <div class="display-wrap">
+      <div class="display-label">현재 층</div>
+      <div class="display-scan">
+        <div class="floor-row">
+          <div class="floor-display" id="floorDisplay" aria-hidden="true"></div>
+          <div class="floor-unit">F</div>
+        </div>
+      </div>
+      <div class="sr-only" aria-live="polite" id="floorAnnounce"></div>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat">
+        <span class="k">연승</span>
+        <span class="v" id="streakVal">0회</span>
+      </div>
+      <div class="stat">
+        <span class="k">최고 기록</span>
+        <span class="v amber" id="bestVal">0층</span>
+      </div>
+    </div>
+
+    <div class="stat-row prob-row">
+      <div class="stat">
+        <span class="k">이번 판 실전 승률</span>
+        <span class="v small" id="winRateVal">-</span>
+      </div>
+      <div class="stat">
+        <span class="k">이 층까지 오를 이론 확률</span>
+        <span class="v small amber" id="theoryProbVal">100%</span>
+      </div>
+    </div>
+
+    <div class="battle">
+      <div class="slot">
+        <div class="who">나</div>
+        <div class="slot-icon" id="slotPlayer" aria-hidden="true"></div>
+      </div>
+      <div class="vs">VS</div>
+      <div class="slot">
+        <div class="who">컴퓨터</div>
+        <div class="slot-icon" id="slotComputer" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <div class="message" id="message" role="status">가위, 바위, 보 중 하나를 선택해 도전을 시작하세요.</div>
+
+    <div class="choices">
+      <button class="choice-btn" data-choice="scissors" type="button">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round">
+          <circle cx="14" cy="34" r="5"/>
+          <circle cx="14" cy="14" r="5"/>
+          <path d="M18 18 L38 38 M18 30 L38 10"/>
+        </svg>
+        <span class="label">가위</span>
+      </button>
+      <button class="choice-btn" data-choice="rock" type="button">
+        <svg viewBox="0 0 48 48">
+          <circle cx="24" cy="26" r="16" fill="currentColor"/>
+          <path d="M12 23 Q24 15 36 23" stroke="#0b0f18" stroke-width="2" fill="none" opacity="0.35"/>
+        </svg>
+        <span class="label">바위</span>
+      </button>
+      <button class="choice-btn" data-choice="paper" type="button">
+        <svg viewBox="0 0 48 48">
+          <path d="M10 6 H30 L38 14 V42 H10 Z" fill="currentColor"/>
+          <path d="M30 6 L30 14 H38 Z" fill="#0b0f18" opacity="0.45"/>
+        </svg>
+        <span class="label">보</span>
+      </button>
+    </div>
+
+    <div class="auto-box" id="autoBox">
+      <div class="auto-head">
+        <span>자동 운전</span>
+        <span class="auto-status" id="autoStatus">대기</span>
+      </div>
+
+      <div class="auto-controls" id="autoControls">
+        <div class="auto-mode" role="group" aria-label="자동 운전 모드">
+          <button class="mode-btn active" data-mode="count" type="button" aria-pressed="true">판수 지정</button>
+          <button class="mode-btn" data-mode="floor" type="button" aria-pressed="false">목표 층 지정</button>
+        </div>
+        <div class="auto-input-row">
+          <input type="number" id="autoTargetInput" min="1" max="999" value="10" inputmode="numeric" aria-label="자동 운전 목표 값" />
+          <span class="auto-input-suffix" id="autoInputSuffix">판</span>
+          <button class="auto-start-btn" id="autoStartBtn" type="button">자동 시작</button>
+        </div>
+        <div class="auto-hint" id="autoHint" hidden></div>
+      </div>
+
+      <div class="auto-running" id="autoRunning" hidden>
+        <div class="auto-progress-text" id="autoProgressText">자동 진행 중</div>
+        <button class="auto-stop-btn" id="autoStopBtn" type="button">정지</button>
+      </div>
+    </div>
+
+    <div class="log-box">
+      <div class="log-head">
+        <span>운행 기록</span>
+        <span id="logCount">0건</span>
+      </div>
+      <div class="log-list" id="logList">
+        <div class="log-empty" id="logEmpty">아직 기록이 없습니다. 첫 판을 시작해 보세요.</div>
+      </div>
+    </div>
+
+    <div class="footer-note">기록은 이 브라우저에 자동 저장됩니다</div>
+
+    <div class="overlay" id="overlay">
+      <div class="overlay-card">
+        <div class="tag">추락</div>
+        <h2>도전이 끝났습니다</h2>
+        <div class="final-floor" id="finalFloor">0</div>
+        <div class="note" id="overlayNote">최고 기록 0층</div>
+        <button class="restart-btn" id="restartBtn" type="button">처음부터 다시 오르기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var BEST_KEY = "rps-tower-best";
+  var MUTE_KEY = "rps-tower-muted";
+
+  var SEG_MAP = {
+    "0":"abcdef", "1":"bc", "2":"abdeg", "3":"abcdg", "4":"bcfg",
+    "5":"acdfg", "6":"acdefg", "7":"abc", "8":"abcdefg", "9":"abcdfg"
+  };
+
+  var ICONS = {
+    scissors: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><circle cx="14" cy="34" r="5"/><circle cx="14" cy="14" r="5"/><path d="M18 18 L38 38 M18 30 L38 10"/></svg>',
+    rock: '<svg viewBox="0 0 48 48"><circle cx="24" cy="26" r="16" fill="currentColor"/><path d="M12 23 Q24 15 36 23" stroke="#0b0f18" stroke-width="2" fill="none" opacity="0.35"/></svg>',
+    paper: '<svg viewBox="0 0 48 48"><path d="M10 6 H30 L38 14 V42 H10 Z" fill="currentColor"/><path d="M30 6 L30 14 H38 Z" fill="#0b0f18" opacity="0.45"/></svg>'
+  };
+
+  var LABELS = { scissors: "가위", rock: "바위", paper: "보" };
+  var BEATS = { rock: "scissors", scissors: "paper", paper: "rock" };
+  var CHOICE_KEYS = ["scissors", "rock", "paper"];
+
+  var floorDisplayEl = document.getElementById("floorDisplay");
+  var floorAnnounceEl = document.getElementById("floorAnnounce");
+  var streakEl = document.getElementById("streakVal");
+  var bestEl = document.getElementById("bestVal");
+  var messageEl = document.getElementById("message");
+  var slotPlayerEl = document.getElementById("slotPlayer");
+  var slotComputerEl = document.getElementById("slotComputer");
+  var panelEl = document.getElementById("panel");
+  var overlayEl = document.getElementById("overlay");
+  var finalFloorEl = document.getElementById("finalFloor");
+  var overlayNoteEl = document.getElementById("overlayNote");
+  var restartBtn = document.getElementById("restartBtn");
+  var muteBtn = document.getElementById("muteBtn");
+  var muteIconOn = document.getElementById("muteIconOn");
+  var muteIconOff = document.getElementById("muteIconOff");
+  var buttons = Array.prototype.slice.call(document.querySelectorAll(".choice-btn"));
+  var winRateEl = document.getElementById("winRateVal");
+  var theoryProbEl = document.getElementById("theoryProbVal");
+  var logListEl = document.getElementById("logList");
+  var logEmptyEl = document.getElementById("logEmpty");
+  var logCountEl = document.getElementById("logCount");
+  var displayWrapEl = document.querySelector(".display-wrap");
+  var choicesEl = document.querySelector(".choices");
+  var prefersReducedMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+  var autoModeButtons = Array.prototype.slice.call(document.querySelectorAll(".mode-btn"));
+  var autoTargetInput = document.getElementById("autoTargetInput");
+  var autoInputSuffixEl = document.getElementById("autoInputSuffix");
+  var autoStartBtn = document.getElementById("autoStartBtn");
+  var autoStopBtn = document.getElementById("autoStopBtn");
+  var autoControlsEl = document.getElementById("autoControls");
+  var autoRunningEl = document.getElementById("autoRunning");
+  var autoProgressTextEl = document.getElementById("autoProgressText");
+  var autoStatusEl = document.getElementById("autoStatus");
+  var autoHintEl = document.getElementById("autoHint");
+
+  var streak = 0;
+  var best = parseInt(localStorage.getItem(BEST_KEY), 10) || 0;
+  var busy = false;
+  var gameOver = false;
+  var muted = localStorage.getItem(MUTE_KEY) === "1";
+  var wins = 0;
+  var losses = 0;
+  var draws = 0;
+  var totalRounds = 0;
+  var AUTO_SAFETY_CAP = 3000;
+  var MAX_LOG_ROWS = 200;
+  var autoPlayActive = false;
+  var autoMode = "count";
+  var autoTarget = 10;
+  var autoRoundsDone = 0;
+  var autoSessionRounds = 0;
+  var autoTickTimerId = null;
+
+  var audioCtx = null;
+  function ensureCtx(){
+    if (!audioCtx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    }
+    return audioCtx;
+  }
+  function beep(freq, dur, type, gainVal){
+    if (muted) return;
+    try{
+      var ctx = ensureCtx();
+      if (!ctx) return;
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(gainVal, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + dur);
+    }catch(e){}
+  }
+
+  function buildDigit(ch){
+    var seg = SEG_MAP[ch] || "";
+    var parts = ["a","b","c","d","e","f","g"].map(function(k){
+      var on = seg.indexOf(k) !== -1 ? " on" : "";
+      return '<span class="seg seg-' + k + on + '"></span>';
+    }).join("");
+    return '<div class="digit">' + parts + '</div>';
+  }
+
+  function setFloor(n, animate){
+    var str = String(n);
+    if (str.length < 2) str = "0" + str;
+    floorDisplayEl.innerHTML = str.split("").map(buildDigit).join("");
+    if (animate){
+      floorDisplayEl.classList.remove("pulse");
+      void floorDisplayEl.offsetWidth;
+      floorDisplayEl.classList.add("pulse");
+    }
+    floorAnnounceEl.textContent = "현재 " + n + "층";
+  }
+
+  function updateButtonsState(){
+    var disabled = busy || gameOver || autoPlayActive;
+    buttons.forEach(function(b){ b.disabled = disabled; });
+    var autoStartDisabled = busy || gameOver;
+    autoStartBtn.disabled = autoStartDisabled;
+    autoTargetInput.disabled = autoStartDisabled;
+    autoModeButtons.forEach(function(b){ b.disabled = autoStartDisabled; });
+  }
+
+  function renderSlot(el, choiceKey, mode){
+    el.classList.remove("result-win", "result-lose", "result-draw", "thinking", "reel", "pop-in");
+    if (mode === "thinking"){
+      el.classList.add("thinking");
+      el.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div>';
+      return;
+    }
+    if (mode === "reel"){
+      el.classList.add("reel");
+      el.innerHTML = choiceKey ? ICONS[choiceKey] : "";
+      return;
+    }
+    if (mode) el.classList.add(mode);
+    el.innerHTML = choiceKey ? ICONS[choiceKey] : "";
+    if (choiceKey) el.classList.add("pop-in");
+  }
+
+  function clearSlots(){
+    slotPlayerEl.className = "slot-icon";
+    slotComputerEl.className = "slot-icon";
+    slotPlayerEl.innerHTML = "";
+    slotComputerEl.innerHTML = "";
+  }
+
+  function flashEl(el){
+    if (prefersReducedMotion) return;
+    el.classList.remove("flash");
+    void el.offsetWidth;
+    el.classList.add("flash");
+  }
+
+  function showFloorGain(){
+    if (prefersReducedMotion) return;
+    var badge = document.createElement("span");
+    badge.className = "floor-gain";
+    badge.textContent = "+1";
+    badge.setAttribute("aria-hidden", "true");
+    displayWrapEl.appendChild(badge);
+    setTimeout(function(){
+      if (badge.parentNode) badge.parentNode.removeChild(badge);
+    }, 900);
+  }
+
+  function judge(player, computer){
+    if (player === computer) return "draw";
+    if (BEATS[player] === computer) return "win";
+    return "lose";
+  }
+
+  // 컴퓨터가 매번 무작위(가위/바위/보 각 1/3)로 내므로, 비김을 뺀 승부 한 번은
+  // 항상 1/2 확률이다. 따라서 n층까지 무패로 오를 확률은 (1/2)^n 이 된다.
+  function theoryLabel(floor){
+    if (floor <= 0) return "100%";
+    var denom = Math.pow(2, floor);
+    var pct = 100 / denom;
+    var pctStr = pct >= 10 ? pct.toFixed(1) + "%"
+      : pct >= 1 ? pct.toFixed(2) + "%"
+      : pct.toPrecision(2) + "%";
+    return denom <= 8192 ? pctStr + " (1/" + denom + ")" : pctStr;
+  }
+
+  function winRateLabel(){
+    var decisive = wins + losses;
+    if (!decisive) return "-";
+    var pct = Math.round((wins / decisive) * 100);
+    return pct + "% (" + wins + "승 " + losses + "패)";
+  }
+
+  function updateProbabilityDisplays(){
+    winRateEl.textContent = winRateLabel();
+    theoryProbEl.textContent = theoryLabel(streak);
+  }
+
+  function addLogEntry(roundNum, playerChoice, computerChoice, result, floorAfter){
+    if (logEmptyEl){
+      logEmptyEl.remove();
+      logEmptyEl = null;
+    }
+    var resultLabel = result === "win" ? "승" : result === "lose" ? "패" : "무";
+    var idx = String(roundNum).length < 2 ? "0" + roundNum : String(roundNum);
+    var row = document.createElement("div");
+    row.className = "log-row result-" + result + (prefersReducedMotion ? "" : " new");
+    row.innerHTML =
+      '<span class="lr-idx">' + idx + '</span>' +
+      '<span class="lr-choice">' + LABELS[playerChoice] + ' vs ' + LABELS[computerChoice] + '</span>' +
+      '<span class="lr-result">' + resultLabel + '</span>' +
+      '<span class="lr-floor">' + floorAfter + '층</span>';
+    logListEl.insertBefore(row, logListEl.firstChild);
+    while (logListEl.children.length > MAX_LOG_ROWS){
+      logListEl.removeChild(logListEl.lastChild);
+    }
+    logCountEl.textContent = totalRounds + "건";
+  }
+
+  function handleResult(result, playerChoice, computerChoice, roundNum){
+    if (result === "draw"){
+      draws++;
+      renderSlot(slotPlayerEl, playerChoice, "result-draw");
+      renderSlot(slotComputerEl, computerChoice, "result-draw");
+      messageEl.textContent = "비겼습니다! 같은 층에서 다시 도전하세요.";
+      messageEl.className = "message draw";
+      addLogEntry(roundNum, playerChoice, computerChoice, result, streak);
+      updateProbabilityDisplays();
+      beep(392, 0.15, "triangle", 0.04);
+      panelEl.classList.add("flash-draw");
+      setTimeout(function(){ panelEl.classList.remove("flash-draw"); }, 400);
+      busy = false;
+      updateButtonsState();
+      choicesEl.classList.add("armed");
+      if (autoPlayActive) updateAutoProgressText();
+      maybeContinueAutoPlay();
+      return;
+    }
+
+    if (result === "win"){
+      wins++;
+      renderSlot(slotPlayerEl, playerChoice, "result-win");
+      renderSlot(slotComputerEl, computerChoice, "result-lose");
+      streak++;
+      var newRecord = streak > best;
+      if (newRecord){
+        best = streak;
+        localStorage.setItem(BEST_KEY, String(best));
+      }
+      setFloor(streak, true);
+      showFloorGain();
+      streakEl.textContent = streak + "회";
+      bestEl.textContent = best + "층";
+      flashEl(streakEl);
+      if (newRecord) flashEl(bestEl);
+      messageEl.textContent = newRecord
+        ? "승리! 신기록 " + streak + "층에 도달했습니다."
+        : "승리! " + streak + "층에 도달했습니다.";
+      messageEl.className = "message win";
+      addLogEntry(roundNum, playerChoice, computerChoice, result, streak);
+      updateProbabilityDisplays();
+      flashEl(winRateEl);
+      flashEl(theoryProbEl);
+      panelEl.classList.add("flash-win");
+      setTimeout(function(){ panelEl.classList.remove("flash-win"); }, 400);
+      [523, 659, 784].forEach(function(f, i){
+        setTimeout(function(){ beep(f, 0.12, "square", 0.045); }, i * 90);
+      });
+      busy = false;
+      updateButtonsState();
+      choicesEl.classList.add("armed");
+      if (autoPlayActive) updateAutoProgressText();
+      maybeContinueAutoPlay();
+      return;
+    }
+
+    // lose
+    losses++;
+    renderSlot(slotPlayerEl, playerChoice, "result-lose");
+    renderSlot(slotComputerEl, computerChoice, "result-win");
+    var fallenFloor = streak;
+    messageEl.textContent = fallenFloor + "층에서 추락했습니다...";
+    messageEl.className = "message lose";
+    addLogEntry(roundNum, playerChoice, computerChoice, result, fallenFloor);
+    updateProbabilityDisplays();
+    flashEl(winRateEl);
+    beep(220, 0.35, "sawtooth", 0.05);
+    setTimeout(function(){ beep(140, 0.4, "sawtooth", 0.05); }, 120);
+    panelEl.classList.add("shake", "flash-lose");
+
+    if (autoPlayActive){
+      // 자동 운전 중에는 추락해도 멈추지 않고, 층수만 0으로 되돌린 뒤 곧바로 다시 도전한다.
+      setTimeout(function(){
+        panelEl.classList.remove("shake", "flash-lose");
+        streak = 0;
+        setFloor(0, false);
+        streakEl.textContent = "0회";
+        clearSlots();
+        busy = false;
+        updateProbabilityDisplays();
+        updateButtonsState();
+        choicesEl.classList.add("armed");
+        if (autoPlayActive) updateAutoProgressText();
+        maybeContinueAutoPlay();
+      }, 500);
+      return;
+    }
+
+    gameOver = true;
+    setTimeout(function(){
+      panelEl.classList.remove("shake", "flash-lose");
+      showGameOver();
+    }, 500);
+  }
+
+  function showGameOver(){
+    finalFloorEl.textContent = streak;
+    overlayNoteEl.textContent = (streak > 0 && streak >= best)
+      ? "축하합니다, 신기록입니다!"
+      : "최고 기록 " + best + "층";
+    overlayEl.classList.add("show");
+    updateButtonsState();
+    restartBtn.focus();
+  }
+
+  function play(choiceKey){
+    if (busy || gameOver) return;
+    busy = true;
+    totalRounds++;
+    var roundNum = totalRounds;
+    updateButtonsState();
+    choicesEl.classList.remove("armed");
+    buttons.forEach(function(b){
+      var isChosen = b.getAttribute("data-choice") === choiceKey;
+      b.classList.toggle("chosen", isChosen);
+      b.classList.toggle("not-chosen", !isChosen);
+      b.setAttribute("aria-pressed", isChosen ? "true" : "false");
+    });
+    beep(520, 0.05, "square", 0.03);
+
+    renderSlot(slotPlayerEl, choiceKey, null);
+    renderSlot(slotComputerEl, null, "thinking");
+    messageEl.textContent = "컴퓨터가 선택하는 중...";
+    messageEl.className = "message thinking";
+
+    setTimeout(function(){
+      var reelTimer = setInterval(function(){
+        var randKey = CHOICE_KEYS[Math.floor(Math.random() * CHOICE_KEYS.length)];
+        renderSlot(slotComputerEl, randKey, "reel");
+        beep(300 + Math.random() * 220, 0.02, "square", 0.018);
+      }, 100);
+
+      setTimeout(function(){
+        clearInterval(reelTimer);
+        var computerChoice = CHOICE_KEYS[Math.floor(Math.random() * CHOICE_KEYS.length)];
+        var result = judge(choiceKey, computerChoice);
+        handleResult(result, choiceKey, computerChoice, roundNum);
+      }, 400);
+    }, 220);
+  }
+
+  function restart(){
+    streak = 0;
+    gameOver = false;
+    busy = false;
+    wins = 0;
+    losses = 0;
+    draws = 0;
+    totalRounds = 0;
+    if (autoTickTimerId){ clearTimeout(autoTickTimerId); autoTickTimerId = null; }
+    autoPlayActive = false;
+    autoRoundsDone = 0;
+    autoSessionRounds = 0;
+    autoRunningEl.hidden = true;
+    autoControlsEl.hidden = false;
+    setAutoStatus("idle", "대기");
+    setFloor(0, false);
+    streakEl.textContent = "0회";
+    bestEl.textContent = best + "층";
+    messageEl.textContent = "가위, 바위, 보 중 하나를 선택해 도전을 시작하세요.";
+    messageEl.className = "message";
+    clearSlots();
+    overlayEl.classList.remove("show");
+    updateButtonsState();
+    buttons.forEach(function(b){
+      b.classList.remove("chosen", "not-chosen");
+      b.setAttribute("aria-pressed", "false");
+    });
+    choicesEl.classList.add("armed");
+    updateProbabilityDisplays();
+    logListEl.innerHTML = '<div class="log-empty" id="logEmpty">아직 기록이 없습니다. 첫 판을 시작해 보세요.</div>';
+    logEmptyEl = document.getElementById("logEmpty");
+    logCountEl.textContent = "0건";
+  }
+
+  function setAutoStatus(kind, text){
+    autoStatusEl.className = "auto-status" + (kind === "running" ? " running" : kind === "done" ? " done" : "");
+    autoStatusEl.textContent = text;
+  }
+
+  function showAutoHint(text){
+    autoHintEl.textContent = text;
+    autoHintEl.hidden = false;
+  }
+
+  function hideAutoHint(){
+    autoHintEl.hidden = true;
+  }
+
+  function updateAutoProgressText(){
+    if (autoMode === "count"){
+      autoProgressTextEl.textContent = "자동 진행 중: " + autoRoundsDone + " / " + autoTarget + "판";
+    } else {
+      autoProgressTextEl.textContent = "목표 " + autoTarget + "층까지 자동 진행 중 (현재 " + streak + "층)";
+    }
+  }
+
+  function autoTick(){
+    if (!autoPlayActive || gameOver) return;
+    autoRoundsDone++;
+    autoSessionRounds++;
+    updateAutoProgressText();
+    var randomChoice = CHOICE_KEYS[Math.floor(Math.random() * CHOICE_KEYS.length)];
+    play(randomChoice);
+  }
+
+  // 승/무/패 라운드가 끝날 때마다 호출된다. 패배해도 자동 운전 중이면 즉시
+  // 층수만 0으로 되돌리고 계속 진행하므로, 목표 달성 여부는 매 라운드가
+  // 끝난 직후 여기서 확인한다.
+  function maybeContinueAutoPlay(){
+    if (!autoPlayActive) return;
+    if (autoMode === "count" && autoRoundsDone >= autoTarget){ finishAutoPlay("count"); return; }
+    if (autoMode === "floor" && streak >= autoTarget){ finishAutoPlay("floor"); return; }
+    if (autoSessionRounds >= AUTO_SAFETY_CAP){ finishAutoPlay("cap"); return; }
+    scheduleNextAutoTick();
+  }
+
+  function scheduleNextAutoTick(){
+    if (!autoPlayActive) return;
+    autoTickTimerId = setTimeout(function(){
+      autoTickTimerId = null;
+      autoTick();
+    }, 600);
+  }
+
+  function finishAutoPlay(reason){
+    autoPlayActive = false;
+    autoRunningEl.hidden = true;
+    autoControlsEl.hidden = false;
+    if (reason === "count"){
+      setAutoStatus("done", autoTarget + "판 완료");
+    } else if (reason === "floor"){
+      setAutoStatus("done", autoTarget + "층 목표 달성");
+    } else {
+      setAutoStatus("idle", "시도 한도(" + AUTO_SAFETY_CAP + "회)로 정지");
+    }
+    setTimeout(function(){ if (!autoPlayActive) setAutoStatus("idle", "대기"); }, 2200);
+    updateButtonsState();
+  }
+
+  function startAutoPlay(){
+    hideAutoHint();
+    var raw = parseInt(autoTargetInput.value, 10);
+    if (!raw || raw < 1) raw = 1;
+    raw = Math.min(raw, 999);
+    if (autoMode === "floor" && raw <= streak){
+      showAutoHint("현재 " + streak + "층보다 높은 목표 층을 입력하세요.");
+      return;
+    }
+    autoTargetInput.value = raw;
+    autoTarget = raw;
+    autoRoundsDone = 0;
+    autoSessionRounds = 0;
+    autoPlayActive = true;
+    autoControlsEl.hidden = true;
+    autoRunningEl.hidden = false;
+    setAutoStatus("running", "진행 중");
+    updateAutoProgressText();
+    updateButtonsState();
+    autoTick();
+  }
+
+  function stopAutoPlay(){
+    if (autoTickTimerId){ clearTimeout(autoTickTimerId); autoTickTimerId = null; }
+    var wasActive = autoPlayActive;
+    autoPlayActive = false;
+    autoRunningEl.hidden = true;
+    autoControlsEl.hidden = false;
+    if (wasActive){
+      setAutoStatus("idle", "정지됨");
+      setTimeout(function(){ if (!autoPlayActive) setAutoStatus("idle", "대기"); }, 1600);
+    }
+    updateButtonsState();
+  }
+
+  autoModeButtons.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      if (autoPlayActive) return;
+      autoModeButtons.forEach(function(b){
+        b.classList.remove("active");
+        b.setAttribute("aria-pressed", "false");
+      });
+      btn.classList.add("active");
+      btn.setAttribute("aria-pressed", "true");
+      autoMode = btn.getAttribute("data-mode");
+      autoInputSuffixEl.textContent = autoMode === "count" ? "판" : "층";
+      hideAutoHint();
+    });
+  });
+
+  autoStartBtn.addEventListener("click", startAutoPlay);
+  autoStopBtn.addEventListener("click", stopAutoPlay);
+
+  buttons.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      play(btn.getAttribute("data-choice"));
+    });
+  });
+
+  restartBtn.addEventListener("click", restart);
+
+  muteBtn.addEventListener("click", function(){
+    muted = !muted;
+    localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
+    muteIconOn.style.display = muted ? "none" : "block";
+    muteIconOff.style.display = muted ? "block" : "none";
+    muteBtn.setAttribute("aria-label", muted ? "효과음 켜기" : "효과음 끄기");
+    if (!muted) beep(520, 0.05, "square", 0.03);
+  });
+
+  // 초기 상태
+  muteIconOn.style.display = muted ? "none" : "block";
+  muteIconOff.style.display = muted ? "block" : "none";
+  muteBtn.setAttribute("aria-label", muted ? "효과음 켜기" : "효과음 끄기");
+  buttons.forEach(function(b){ b.setAttribute("aria-pressed", "false"); });
+  choicesEl.classList.add("armed");
+  setFloor(0, false);
+  bestEl.textContent = best + "층";
+})();
+</script>
+
+</body>
+</html>
